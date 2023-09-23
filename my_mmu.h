@@ -113,12 +113,14 @@ void* my_malloc(size_t size) {
         if(current->is_free && current->size >= size + sizeof(Node)) {
             split(current, size);
 
+            last_allocated_block = current;
             void* allocated_ptr = (char*)current + sizeof(Node);
 
             return allocated_ptr;
         }
         current = (current->next == NULL ? head : current->next);
-    } while(current != last_allocated_block)
+    } while(current != last_allocated_block);
+
     Node* new_block = (Node*)sbrk(PAGESIZE);
 
     tail->next = new_block;
@@ -163,3 +165,18 @@ void my_free(void* ptr) {
     }
     coalesce(current);
 }
+
+void debug() {
+    Node* current = head;
+
+    while(current != NULL) {
+        if(current->is_free) 
+            printf("Free block of size %d available at address %d", current->size, (char*)current + sizeof(Node));
+
+        else
+            printf("Occupied block of size %d at address %d", current->size, (char*)current + sizeof(Node));
+    }
+}
+
+
+
