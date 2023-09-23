@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#define PAGESIZE 1024
+#define PAGESIZE 4096
 
 // Include your Headers below
 
@@ -62,8 +62,9 @@ Node* last_allocated_block = NULL;
 // |------node-------|----------new_block---------|  
 // Shrinks the block pointed by 'node' to 'size' and add a new_block in the remaining space           
 void split(Node* node, size_t size) {
-    Node* new_block;
+    Node* new_block = (Node*)((char*)node + sizeof(Node) + size);
 
+    printf("Size requested = %d\nSize available = %d\nHeader size = %d\n",size, node->size, sizeof(Node));
     new_block->size = node->size - sizeof(Node) - size;
     new_block->prev = node;
     new_block->next = node->next;
@@ -74,6 +75,21 @@ void split(Node* node, size_t size) {
     node->is_free = false;
 }
 
+// void coalesce(Node* node) {
+//     if(node->next != NULL && node->next->is_free) {
+//         node->size += sizeof(Node) + node->next->size;
+//         if(node->next->next != NULL) 
+//             node->next->next->prev = node;
+//         node->next = node->next->next;
+//     }
+//     if(node->prev != NULL && node->prev->is_free) {
+//         node->size += sizeof(Node) + node->prev->size;
+//         if(node->prev->prev != NULL) 
+//             node->prev->prev->next = node;
+//         node->prev = node->prev->prev;
+//     }
+// }
+
 void coalesce(Node* node) {
     if(node->next != NULL && node->next->is_free) {
         node->size += sizeof(Node) + node->next->size;
@@ -81,11 +97,15 @@ void coalesce(Node* node) {
             node->next->next->prev = node;
         node->next = node->next->next;
     }
+
     if(node->prev != NULL && node->prev->is_free) {
-        node->size += sizeof(Node) + node->prev->size;
-        if(node->prev->prev != NULL) 
-            node->prev->prev->next = node;
-        node->prev = node->prev->prev;
+        // node->prev->size += sizeof(Node) + node->size;
+        // if(node->next != NULL) 
+        //     node->next->prev = node->prev;
+        // node->prev->next = node->next;
+
+        coalesce(node->prev);
+        node = node->prev;
     }
 }
 
@@ -95,45 +115,55 @@ void* my_malloc(size_t size) {
     if(head == NULL) {
         head = (Node*)sbrk(PAGESIZE);
 
-        head->size = size;
+        head->size = PAGESIZE - sizeof(Node);
         head->is_free = true;
 
         split(head, size);
         tail = head->next;
 
         last_allocated_block = head;
-        void* allocated_ptr = (char*)head + sizeof(Node);
+        void* allocated_ptr = (char*)last_allocated_block + sizeof(Node);
 
         return allocated_ptr;
     }
 
     Node* current = last_allocated_block;
 
-    do {
+    while(true) {
         if(current->is_free && current->size >= size + sizeof(Node)) {
+            printf("%d -- FOUND\n", size);
             split(current, size);
 
             last_allocated_block = current;
-            void* allocated_ptr = (char*)current + sizeof(Node);
+            void* allocated_ptr = (char*)last_allocated_block + sizeof(Node);
 
             return allocated_ptr;
         }
         current = (current->next == NULL ? head : current->next);
-    } while(current != last_allocated_block);
+
+        if(current == last_allocated_block) {
+            break;
+        }
+    } 
+    printf("Out of the loop\n");
 
     Node* new_block = (Node*)sbrk(PAGESIZE);
 
-    tail->next = new_block;
+    new_block->size = PAGESIZE - sizeof(Node);
     new_block->prev = tail;
+    new_block->is_free = true;
+
+    tail->next = new_block;
     tail = new_block;
 
     coalesce(tail);
     split(tail, size);
 
     last_allocated_block = tail;
-    void* allocated_ptr = (char*)tail + sizeof(Node);
-
     tail = tail->next;
+
+    void* allocated_ptr = (char*)last_allocated_block + sizeof(Node);
+
 
     return allocated_ptr;
 }
@@ -171,10 +201,12 @@ void debug() {
 
     while(current != NULL) {
         if(current->is_free) 
-            printf("Free block of size %d available at address %d", current->size, (char*)current + sizeof(Node));
+            printf("Free block of size %d available at address %d\n", current->size, (char*)current + sizeof(Node));
 
         else
-            printf("Occupied block of size %d at address %d", current->size, (char*)current + sizeof(Node));
+            printf("Occupied block of size %d at address %d\n", current->size, (char*)current + sizeof(Node));
+
+        current = current->next;
     }
 }
 
